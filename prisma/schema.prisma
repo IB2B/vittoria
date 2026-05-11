@@ -1,0 +1,201 @@
+// Vittoria — Prisma schema
+// Mirrors §4 of docs/Claude_Code_Prompt_Ads_Dashboard.md
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum Role {
+  ADMIN
+  MANAGER
+  CLIENT
+  VIEWER
+}
+
+enum Channel {
+  META
+  GOOGLE
+}
+
+model User {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  passwordHash String
+  name         String?
+  role         Role      @default(CLIENT)
+  clientId     String?
+  client       Client?   @relation(fields: [clientId], references: [id])
+  createdAt    DateTime  @default(now())
+  lastLoginAt  DateTime?
+
+  loginAttempts LoginAttempt[]
+  auditLogs     AuditLog[]
+  reports       Report[]
+}
+
+model Client {
+  id         String      @id @default(cuid())
+  name       String
+  slug       String      @unique
+  brandColor String?
+  logoUrl    String?
+  archived   Boolean     @default(false)
+  adAccounts AdAccount[]
+  users      User[]
+  reports    Report[]
+  orders     Order[]
+  channelStats ChannelStat[]
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+}
+
+model AdAccount {
+  id             String         @id @default(cuid())
+  clientId       String
+  client         Client         @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  channel        Channel        @default(META)
+  metaAccountId  String
+  accessTokenEnc String
+  tokenExpiresAt DateTime?
+  currency       String         @default("EUR")
+  timezone       String         @default("Europe/Rome")
+  // For META: the Business Manager that owns the ad account (Meta's `business.id` /
+  // `business.name`). Used by the BM switcher in the sidebar to scope the workspace
+  // to one BM at a time. Nullable because pre-migration rows have no value, and
+  // ad accounts not under any BM (rare) also exist.
+  businessId     String?
+  businessName   String?
+  lastSyncedAt   DateTime?
+  lastSyncError  String?
+  syncSnapshots  SyncSnapshot[]
+
+  @@unique([clientId, metaAccountId])
+  @@index([businessId])
+}
+
+model SyncSnapshot {
+  id          String    @id @default(cuid())
+  adAccountId String
+  adAccount   AdAccount @relation(fields: [adAccountId], references: [id], onDelete: Cascade)
+  takenAt     DateTime  @default(now())
+  rangeStart  DateTime
+  rangeEnd    DateTime
+  payload     Json
+
+  @@index([adAccountId, rangeStart, rangeEnd])
+}
+
+// Manual backend-attributed orders (not tracked by the Meta pixel)
+model Order {
+  id         String   @id @default(cuid())
+  clientId   String
+  client     Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  occurredAt DateTime
+  reference  String?
+  value      Decimal  @db.Decimal(12, 2)
+  currency   String   @default("EUR")
+  notes      String?
+  createdBy  String?
+  createdAt  DateTime @default(now())
+
+  @@index([clientId, occurredAt])
+}
+
+enum ReportStatus {
+  PENDING
+  RUNNING
+  DONE
+  FAILED
+}
+
+model Report {
+  id          String       @id @default(cuid())
+  clientId    String
+  client      Client       @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  rangeStart  DateTime
+  rangeEnd    DateTime
+  generatedBy String
+  user        User         @relation(fields: [generatedBy], references: [id])
+  fileUrl     String?
+  language    String       @default("it")
+  // Async build pipeline. Download serves only when status = DONE.
+  // narrativeJson + prioritiesJson + contextNote are everything the docx
+  // builder needs to render deterministically (numbers come from the cached
+  // SyncSnapshot at build time).
+  status         ReportStatus @default(PENDING)
+  progress       Int          @default(0)
+  phaseLabel     String?
+  errorMessage   String?
+  narrativeJson  Json?
+  prioritiesJson Json?
+  contextNote    String?
+  startedAt      DateTime?
+  completedAt    DateTime?
+  createdAt      DateTime     @default(now())
+
+  @@index([clientId, createdAt])
+  @@index([status])
+}
+
+// Manually-entered period totals for channels we don't sync via API yet
+// (Google Ads MVP). Replaces an external integration for the report + dashboard.
+model ChannelStat {
+  id          String   @id @default(cuid())
+  clientId    String
+  client      Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  channel     Channel
+  rangeStart  DateTime
+  rangeEnd    DateTime
+  spend       Decimal  @db.Decimal(12, 2)
+  impressions Int      @default(0)
+  clicks      Int      @default(0)
+  conversions Int      @default(0)
+  revenue     Decimal  @db.Decimal(12, 2) @default(0)
+  currency    String   @default("EUR")
+  notes       String?
+  createdBy   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([clientId, channel, rangeStart])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
+  action    String
+  meta      Json?
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([action, createdAt])
+}
+
+// Per-role permission overrides. One row per Role; the JSON `permissions` is
+// an array of page-key strings the role is allowed to see/use. Seeded with
+// sensible defaults on first read; editable by ADMIN from the Team page.
+model RolePermission {
+  role        Role     @id
+  permissions Json
+  updatedAt   DateTime @updatedAt
+}
+
+// Brute-force throttling per §8 — 5 failures in 15 minutes locks the account.
+model LoginAttempt {
+  id        String   @id @default(cuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
+  email     String
+  success   Boolean
+  ipAddress String?
+  createdAt DateTime @default(now())
+
+  @@index([email, createdAt])
+}

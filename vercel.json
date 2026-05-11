@@ -1,0 +1,24 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "prisma generate && next build",
+  "installCommand": "npm install",
+  "framework": "nextjs",
+  "regions": ["fra1"],
+  "crons": [
+    {
+      "path": "/api/cron/sync",
+      "schedule": "0 */4 * * *"
+    }
+  ],
+  "functions": {
+    "src/app/api/bi/chat/route.ts": {
+      "maxDuration": 60
+    },
+    "src/app/api/cron/sync/route.ts": {
+      "maxDuration": 60
+    },
+    "src/app/api/reports/[id]/download/route.ts": {
+      "maxDuration": 60
+    }
+  }
+}

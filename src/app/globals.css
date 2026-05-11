@@ -1,26 +1,359 @@
 @import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+@custom-variant dark (&:is(.dark *));
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
+  --font-sans: var(--font-sans);
   --font-mono: var(--font-geist-mono);
+  --font-heading: var(--font-sans);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+  --color-brand: var(--brand);
+  --color-brand-foreground: var(--brand-foreground);
+  --color-meta: var(--meta);
+  --color-google: var(--google);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+:root {
+  /* Meta-blue brand palette */
+  --background: oklch(0.99 0.005 240);
+  --foreground: oklch(0.18 0.02 250);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.18 0.02 250);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.18 0.02 250);
+  --primary: oklch(0.55 0.22 260); /* Meta blue #0866FF as primary */
+  --primary-foreground: oklch(0.99 0 0);
+  --secondary: oklch(0.96 0.01 250);
+  --secondary-foreground: oklch(0.25 0.02 250);
+  --muted: oklch(0.97 0.005 250);
+  --muted-foreground: oklch(0.5 0.02 250);
+  --accent: oklch(0.95 0.03 260);
+  --accent-foreground: oklch(0.3 0.15 260);
+  --destructive: oklch(0.6 0.22 27);
+  --border: oklch(0.91 0.01 250);
+  --input: oklch(0.92 0.01 250);
+  --ring: oklch(0.55 0.22 260);
+  --chart-1: oklch(0.55 0.22 260); /* Meta blue */
+  --chart-2: oklch(0.65 0.18 200); /* lighter cyan-blue */
+  --chart-3: oklch(0.55 0.18 320); /* purple */
+  --chart-4: oklch(0.7 0.16 80); /* warm amber for contrast */
+  --chart-5: oklch(0.55 0.2 145); /* green */
+  --radius: 0.75rem;
+  --sidebar: oklch(0.99 0.005 250 / 0.7); /* translucent for glass */
+  --sidebar-foreground: oklch(0.18 0.02 250);
+  --sidebar-primary: oklch(0.55 0.22 260);
+  --sidebar-primary-foreground: oklch(0.99 0 0);
+  --sidebar-accent: oklch(0.95 0.03 260);
+  --sidebar-accent-foreground: oklch(0.3 0.15 260);
+  --sidebar-border: oklch(0.91 0.01 250 / 0.6);
+  --sidebar-ring: oklch(0.55 0.22 260);
+  --brand: #0866ff; /* Meta blue */
+  --brand-foreground: #ffffff;
+  --meta: #0866ff;
+  --google: #34a853;
+}
+
+.dark {
+  --background: oklch(0.13 0.02 250);
+  --foreground: oklch(0.97 0.005 250);
+  --card: oklch(0.18 0.02 255 / 0.7);
+  --card-foreground: oklch(0.97 0.005 250);
+  --popover: oklch(0.2 0.02 255);
+  --popover-foreground: oklch(0.97 0.005 250);
+  --primary: oklch(0.7 0.18 255);
+  --primary-foreground: oklch(0.13 0.02 250);
+  --secondary: oklch(0.25 0.02 255);
+  --secondary-foreground: oklch(0.97 0.005 250);
+  --muted: oklch(0.22 0.02 255);
+  --muted-foreground: oklch(0.7 0.02 250);
+  --accent: oklch(0.3 0.08 260);
+  --accent-foreground: oklch(0.97 0.005 250);
+  --destructive: oklch(0.7 0.19 22);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.6 0.2 260);
+  --chart-1: oklch(0.7 0.18 260);
+  --chart-2: oklch(0.65 0.16 200);
+  --chart-3: oklch(0.65 0.16 320);
+  --chart-4: oklch(0.75 0.16 80);
+  --chart-5: oklch(0.65 0.18 145);
+  --sidebar: oklch(0.16 0.02 255 / 0.6);
+  --sidebar-foreground: oklch(0.97 0.005 250);
+  --sidebar-primary: oklch(0.65 0.2 260);
+  --sidebar-primary-foreground: oklch(0.13 0.02 250);
+  --sidebar-accent: oklch(0.3 0.08 260);
+  --sidebar-accent-foreground: oklch(0.97 0.005 250);
+  --sidebar-border: oklch(1 0 0 / 8%);
+  --sidebar-ring: oklch(0.6 0.2 260);
+  --brand: #4a8bff;
+  --brand-foreground: #0a1628;
+  --meta: #4a8bff;
+  --google: #5dd183;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  /* Move the base color to <html> so <body> can stay transparent and the
+     animated `.aurora` layer behind it is actually visible. Without this,
+     body's solid bg occludes the aurora element entirely. */
+  html {
+    @apply font-sans bg-background text-foreground;
+  }
+  body {
+    @apply text-foreground;
+    background: transparent;
+  }
+
+  /* Native <button>s default to cursor:default — most users expect pointer.
+     Same for any element acting as a button/tab/checkbox/switch via ARIA. */
+  button:not(:disabled):not([aria-disabled="true"]),
+  [role="button"]:not([aria-disabled="true"]),
+  [role="tab"]:not([aria-disabled="true"]),
+  [role="menuitem"]:not([aria-disabled="true"]),
+  [role="option"]:not([aria-disabled="true"]),
+  [role="checkbox"]:not([aria-disabled="true"]),
+  [role="switch"]:not([aria-disabled="true"]),
+  [role="combobox"]:not([aria-disabled="true"]),
+  [type="submit"]:not(:disabled),
+  [type="reset"]:not(:disabled),
+  [type="button"]:not(:disabled),
+  summary {
+    cursor: pointer;
+  }
+  button:disabled,
+  [aria-disabled="true"] {
+    cursor: not-allowed;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+@layer utilities {
+  /* Animated aurora background — three slowly drifting blobs in brand-blue.
+     Lives behind the app shell. Pure CSS, no JS. */
+  .aurora {
+    position: fixed;
+    inset: 0;
+    z-index: 0; /* sits above html bg, below content (which has its own surface bg) */
+    pointer-events: none;
+    overflow: hidden;
+  }
+  .aurora::before,
+  .aurora::after {
+    content: "";
+    position: absolute;
+    border-radius: 50%;
+    filter: blur(90px);
+    opacity: 0.55;
+    animation: aurora-drift 24s ease-in-out infinite;
+  }
+  .aurora::before {
+    width: 60vw;
+    height: 60vw;
+    top: -10vw;
+    left: -10vw;
+    background: radial-gradient(
+      closest-side,
+      color-mix(in oklab, var(--brand) 55%, transparent),
+      transparent
+    );
+  }
+  .aurora::after {
+    width: 70vw;
+    height: 70vw;
+    bottom: -20vw;
+    right: -20vw;
+    background: radial-gradient(
+      closest-side,
+      color-mix(in oklab, var(--brand) 40%, transparent),
+      transparent
+    );
+    animation-delay: -12s;
+  }
+  .dark .aurora::before,
+  .dark .aurora::after {
+    opacity: 0.7;
+  }
+  @keyframes aurora-drift {
+    0%, 100% {
+      transform: translate(0, 0) scale(1);
+    }
+    33% {
+      transform: translate(15vw, 10vh) scale(1.15);
+    }
+    66% {
+      transform: translate(-10vw, 15vh) scale(0.9);
+    }
+  }
+
+  /* Hero number — number gets a brand-gradient text fill. */
+  .hero-number {
+    background: linear-gradient(
+      135deg,
+      color-mix(in oklab, var(--foreground) 92%, transparent) 0%,
+      color-mix(in oklab, var(--brand) 80%, var(--foreground)) 100%
+    );
+    background-clip: text;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+  }
+
+  /* Animated conic gradient border. Wrap a card with this. The border slowly
+     rotates around the element. Subtle by default; dial up via opacity. */
+  .border-magic {
+    position: relative;
+    isolation: isolate;
+  }
+  .border-magic::before {
+    content: "";
+    position: absolute;
+    inset: -1px;
+    border-radius: inherit;
+    padding: 1px;
+    background: conic-gradient(
+      from var(--magic-angle, 0deg),
+      color-mix(in oklab, var(--brand) 80%, transparent) 0deg,
+      transparent 90deg,
+      color-mix(in oklab, var(--brand) 60%, transparent) 180deg,
+      transparent 270deg,
+      color-mix(in oklab, var(--brand) 80%, transparent) 360deg
+    );
+    -webkit-mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    animation: magic-spin 8s linear infinite;
+    opacity: 0.7;
+    pointer-events: none;
+  }
+  @keyframes magic-spin {
+    to {
+      --magic-angle: 360deg;
+    }
+  }
+  @property --magic-angle {
+    syntax: "<angle>";
+    inherits: false;
+    initial-value: 0deg;
+  }
+
+  /* Shimmer text — diagonal sweep. Useful for "live" status pills. */
+  .shimmer {
+    background: linear-gradient(
+      110deg,
+      var(--foreground) 30%,
+      color-mix(in oklab, var(--brand) 80%, var(--foreground)) 50%,
+      var(--foreground) 70%
+    );
+    background-size: 200% 100%;
+    background-clip: text;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+    animation: shimmer-slide 3s linear infinite;
+  }
+  @keyframes shimmer-slide {
+    to {
+      background-position: -200% 0;
+    }
+  }
+}
+
+@layer components {
+  /* Frosted-glass surface — semi-transparent fill, soft border, backdrop blur. */
+  .glass {
+    background: color-mix(in oklab, var(--card) 72%, transparent);
+    backdrop-filter: blur(16px) saturate(140%);
+    -webkit-backdrop-filter: blur(16px) saturate(140%);
+    border: 1px solid color-mix(in oklab, var(--foreground) 8%, transparent);
+    box-shadow:
+      0 1px 0 0 color-mix(in oklab, white 60%, transparent) inset,
+      0 8px 24px -12px color-mix(in oklab, var(--brand) 25%, transparent);
+  }
+  .dark .glass {
+    background: color-mix(in oklab, var(--card) 60%, transparent);
+    box-shadow:
+      0 1px 0 0 color-mix(in oklab, white 6%, transparent) inset,
+      0 8px 30px -8px color-mix(in oklab, var(--brand) 35%, transparent);
+  }
+
+  .glass-strong {
+    background: color-mix(in oklab, var(--card) 88%, transparent);
+    backdrop-filter: blur(22px) saturate(160%);
+    -webkit-backdrop-filter: blur(22px) saturate(160%);
+    border: 1px solid color-mix(in oklab, var(--foreground) 10%, transparent);
+  }
+
+  /* Animated gradient ring around the active sidebar item. */
+  .brand-glow {
+    position: relative;
+    isolation: isolate;
+  }
+  .brand-glow::before {
+    content: "";
+    position: absolute;
+    inset: -1px;
+    border-radius: inherit;
+    padding: 1px;
+    background: conic-gradient(
+      from 0deg,
+      color-mix(in oklab, var(--brand) 90%, transparent),
+      color-mix(in oklab, var(--brand) 35%, transparent),
+      color-mix(in oklab, var(--brand) 90%, transparent)
+    );
+    -webkit-mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    animation: brand-spin 6s linear infinite;
+    pointer-events: none;
+    z-index: -1;
+  }
+  @keyframes brand-spin {
+    to {
+      transform: rotate(1turn);
+    }
+  }
 }
