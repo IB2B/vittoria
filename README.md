@@ -124,41 +124,56 @@ npm run db:studio     # prisma studio
 
 If you switch to Supabase later, your local `vittoria_dev` data does NOT migrate automatically. The clients/ad-accounts/orders you create locally have to be re-created or dumped (`pg_dump`) and restored.
 
-### Hosting → Vercel
+### Hosting → Vercel (Hobby tier compatible)
+
+Production URL: **https://vittoria.intelligentb2b.com**
 
 `vercel.json` is committed at the repo root with the build command, cron schedule, and per-route function timeouts. End-to-end deploy:
 
-1. **Push to GitHub.** `git push` your branch.
-2. **Import in Vercel.** "Add New Project" → pick the repo → leave the framework auto-detect (it'll find Next.js).
-3. **Set environment variables** in Project Settings → Environment Variables. Mirror everything from `.env.example` for the **Production** environment (and **Preview** too, if you want previews to work):
+1. **Push to GitHub.** `git push` to `main`.
+2. **Import in Vercel.** "Add New Project" → pick `IB2B/vittoria` → leave the framework auto-detect (Next.js).
+3. **Custom domain.** Project Settings → Domains → add `vittoria.intelligentb2b.com`. Vercel will give you a CNAME or A record to point at — set it on `intelligentb2b.com`'s DNS (likely Cloudflare or your registrar). Once it propagates (a few minutes), Vercel issues an SSL cert automatically.
+4. **Set environment variables** in Project Settings → Environment Variables (Production + Preview if you want PR previews to work). Mirror everything from `.env.example`:
    - `DATABASE_URL` — Supabase pooled URL (port 6543, with `?pgbouncer=true&connection_limit=10&pool_timeout=20`)
    - `DIRECT_URL` — Supabase session-mode pooler (port 5432, same `pooler.supabase.com` host — **not** the legacy `db.<ref>.supabase.co`)
    - `NEXTAUTH_SECRET`, `AUTH_SECRET` — same value, generate with `openssl rand -base64 32`
-   - `NEXTAUTH_URL` — `https://your-app.vercel.app` (the Production URL). Preview deploys auto-detect via `trustHost: true` in `auth.ts`.
-   - `APP_ENCRYPTION_KEY` — 32-byte base64
+   - `NEXTAUTH_URL=https://vittoria.intelligentb2b.com` for Production. Preview deploys auto-detect host via `trustHost: true` in `auth.ts`.
+   - `APP_ENCRYPTION_KEY` — 32-byte base64. **Must match the local key** so existing encrypted Meta tokens decrypt successfully.
    - `CRON_SECRET` — 32-byte hex (Vercel cron sends this as Bearer)
    - `OPENROUTER_API_KEY` — required for Vittoria chat + report narrative
+   - `OPENROUTER_APP_URL=https://vittoria.intelligentb2b.com` (used for OpenRouter analytics attribution)
+   - `OPENROUTER_APP_TITLE=Vittoria`
    - `SEED_MANAGER_EMAIL`, `SEED_MANAGER_PASSWORD` — only used by `prisma/seed.ts`
-4. **Plan tier:** **Pro is recommended.** `vercel.json` sets `maxDuration: 60` on chat / cron / report routes. Hobby tier caps at 10s — would cut off Vittoria mid-stream and kill report builds.
-5. **Migrations** are NOT run during build. Apply them once, locally, against the Supabase URL **before** the first deploy:
+5. **Cron is once-daily on Hobby.** Vercel Hobby caps crons at one run per 24h; `vercel.json` schedules `/api/cron/sync` for `0 6 * * *` (06:00 UTC). On Pro, change to `0 */4 * * *` for 4-hour refresh.
+6. **Migrations** are NOT run during build. Apply them once, locally, against the Supabase URL **before** the first deploy:
    ```bash
    DATABASE_URL=<supabase-pool> DIRECT_URL=<supabase-direct> npx prisma migrate deploy
    DATABASE_URL=<supabase-pool> DIRECT_URL=<supabase-direct> npm run db:seed
    ```
    For schema changes after launch, run `migrate deploy` against prod before merging the PR.
-6. **First open:** visit `https://your-app.vercel.app/login`, sign in with the seeded admin, then **change the password** at `/settings/profile` immediately.
-7. **Cron:** `/api/cron/sync` runs every 4 hours, signed with `CRON_SECRET`. Already configured in `vercel.json` — no extra setup.
+7. **First open:** visit `https://vittoria.intelligentb2b.com/login`, sign in with the seeded admin, then **change the password** at `/settings/profile` immediately.
 
-**Region.** `vercel.json` pins `fra1` (Frankfurt) — close to Supabase's `eu-west-1` and your Italian users. Adjust if you move regions.
+**Region.** `vercel.json` pins `fra1` (Frankfurt) — close to Supabase's `eu-west-1` and your Italian users.
 
-**Favicon + OG image.** `src/app/icon.svg` + `apple-icon.svg` are the brand-blue V. `src/app/opengraph-image.tsx` generates a 1200×630 PNG for social previews.
+**Favicon + OG image.** `src/app/icon.svg` + `apple-icon.tsx` are the brand-blue V. `src/app/opengraph-image.tsx` generates a 1200×630 PNG for social previews on Slack / WhatsApp / X.
+
+#### Hobby tier consequences (read before launch)
+
+`vercel.json` sets `maxDuration: 60` on the chat / cron / report routes, but **that setting is ignored on Hobby** — Hobby caps every serverless function at **10 seconds**. Concrete impact:
+
+- **Vittoria chat with tool use** — a typical multi-tool conversation takes 5–15s end-to-end. On Hobby, anything >10s gets cut off mid-stream. Users will see partial answers.
+- **Report builds** — Claude narrative call ~5–8s + docx assembly ~2–3s. Will fail intermittently on Hobby with a 10s deadline.
+- **`/api/cron/sync`** — syncing many ad accounts in one daily cron run may not finish within 10s if you have >5 clients. Symptoms: only some clients' snapshots get updated.
+- **Cron frequency** — Hobby allows once-per-day; the spec wants every 4h. You can work around this with an external scheduler (cron-job.org, EasyCron, GitHub Actions) hitting `/api/cron/sync` with the `Authorization: Bearer <CRON_SECRET>` header.
+
+**Pro tier ($20/mo) lifts all of these:** function timeout goes to 60s (matches `maxDuration: 60` in `vercel.json`), and cron frequency is unlimited (change the schedule back to `0 */4 * * *`). If the app is for real client work, the upgrade pays for itself within a single failed report.
 
 **Smoke checks on first deploy:**
 
-- `/api/auth/csrf` → 200 (confirms NextAuth has the right host)
+- `https://vittoria.intelligentb2b.com/api/auth/csrf` → 200 (NextAuth has the right host)
 - `/dashboard` loads after sign-in (DB connectivity OK)
 - `/business-intelligence` chat replies in <10s (OpenRouter key works)
-- Refresh on a client pulls new data (outbound HTTPS to graph.facebook.com is fine)
+- Click **Refresh** on a client → pulls new data (outbound HTTPS to graph.facebook.com is fine)
 
 ### Meta Ads API with your account
 
