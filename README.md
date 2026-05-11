@@ -124,9 +124,55 @@ npm run db:studio     # prisma studio
 
 If you switch to Supabase later, your local `vittoria_dev` data does NOT migrate automatically. The clients/ad-accounts/orders you create locally have to be re-created or dumped (`pg_dump`) and restored.
 
-### Hosting → Vercel (Hobby tier compatible)
+### Hosting → Hostinger Node.js (recommended for this app)
 
 Production URL: **https://vittoria.intelligentb2b.com**
+
+Hostinger's Node.js hosting runs Next.js as a long-lived Node process — no per-request timeout, no cron-frequency cap. End-to-end deploy:
+
+1. **Push to GitHub** (already done — `IB2B/vittoria`).
+2. **hPanel → Hosting → your plan → Advanced → Node.js**. Create a new Node app:
+   - Node version: **22.x** (Next 16 requires ≥18.18; pick the newest LTS available)
+   - Application root: leave default (or `vittoria`)
+   - Application URL: `vittoria.intelligentb2b.com`
+   - Application startup file / start command: `npm start` (Hostinger's UI varies — pick the one that runs your `package.json` start script)
+3. **Git integration** (same panel): connect GitHub → pick `IB2B/vittoria` → branch `main`. Enable auto-deploy on push.
+4. **Environment variables** (Node.js panel → Environment Variables). Set every key from `.env.example`:
+   - `DATABASE_URL` — Supabase pooled URL (port 6543, `?pgbouncer=true&connection_limit=10&pool_timeout=20`)
+   - `DIRECT_URL` — Supabase session-mode pooler (port 5432)
+   - `NEXTAUTH_SECRET`, `AUTH_SECRET` — same value
+   - `NEXTAUTH_URL=https://vittoria.intelligentb2b.com`
+   - `APP_ENCRYPTION_KEY` — **must match your local value** or encrypted Meta tokens won't decrypt
+   - `CRON_SECRET` — 32-byte hex
+   - `OPENROUTER_API_KEY` — required for Vittoria chat + report narrative
+   - `OPENROUTER_APP_URL=https://vittoria.intelligentb2b.com`
+   - `OPENROUTER_APP_TITLE=Vittoria`
+   - `SEED_MANAGER_EMAIL`, `SEED_MANAGER_PASSWORD`
+5. **Build + install command** (in the Node.js panel): set to `npm install && npm run build`. The `postinstall` script auto-runs `prisma generate`. Start command: `npm start`.
+6. **Custom domain.** hPanel → Domains. Point `vittoria.intelligentb2b.com` at this Node app. SSL is auto-issued.
+7. **Migrations.** Apply them once locally before first deploy:
+   ```bash
+   DATABASE_URL=<supabase-pool> DIRECT_URL=<supabase-direct> npx prisma migrate deploy
+   DATABASE_URL=<supabase-pool> DIRECT_URL=<supabase-direct> npm run db:seed
+   ```
+8. **Cron for the 4-hour sync.** hPanel → Advanced → Cron Jobs → Add new cron:
+   - **Command:** `curl -s -H "Authorization: Bearer YOUR_CRON_SECRET" https://vittoria.intelligentb2b.com/api/cron/sync`
+   - **Schedule:** `0 */4 * * *` (every 4 hours — no daily cap on Hostinger)
+9. **First open:** visit `https://vittoria.intelligentb2b.com/login`, sign in with the seeded admin, then **change the password** at `/settings/profile` immediately.
+
+**Smoke checks on first deploy:**
+
+- `https://vittoria.intelligentb2b.com/api/auth/csrf` → 200
+- `/dashboard` loads after sign-in
+- `/business-intelligence` chat replies in <15s (no function timeout — long tool-use chats finish cleanly)
+- Refresh on a client pulls new Meta data
+- After a few hours, Hostinger's cron log + Vittoria's audit log both show the sync ran
+
+**Build memory.** Next.js builds use ~1 GB RAM. If your Node tier OOMs during build, set `NODE_OPTIONS=--max-old-space-size=1024` as an env var, or build locally and upload the `.next` directory.
+
+---
+
+### Hosting → Vercel (alternative — Hobby tier compatible)
 
 `vercel.json` is committed at the repo root with the build command, cron schedule, and per-route function timeouts. End-to-end deploy:
 
