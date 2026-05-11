@@ -51,6 +51,7 @@ model Client {
   reports    Report[]
   orders     Order[]
   channelStats ChannelStat[]
+  libraryItems ClientLibraryItem[]
   createdAt  DateTime    @default(now())
   updatedAt  DateTime    @updatedAt
 }
@@ -164,6 +165,33 @@ model ChannelStat {
   updatedAt   DateTime @updatedAt
 
   @@index([clientId, channel, rangeStart])
+}
+
+enum ClientLibraryItemType {
+  NOTE
+  CREDENTIAL
+  LINK
+}
+
+// Per-client "library" — a scratch space for notes, credentials, and useful
+// links (Drive URLs, brand asset folders, etc.). Credential bodies are stored
+// encrypted at rest (AES-256-GCM via APP_ENCRYPTION_KEY); plain text for
+// NOTE and LINK lives in `body`. The reveal action decrypts on demand.
+model ClientLibraryItem {
+  id        String                @id @default(cuid())
+  clientId  String
+  client    Client                @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  type      ClientLibraryItemType
+  title     String
+  body      String?
+  bodyEnc   String?
+  tags      String[]              @default([])
+  pinned    Boolean               @default(false)
+  createdBy String?
+  createdAt DateTime              @default(now())
+  updatedAt DateTime              @updatedAt
+
+  @@index([clientId, type, createdAt])
 }
 
 model AuditLog {

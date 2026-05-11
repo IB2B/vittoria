@@ -13,6 +13,7 @@ const TABS: Tab[] = [
   { label: "Ad sets", href: "/adsets" },
   { label: "Creatives", href: "/creatives" },
   { label: "Orders", href: "/orders" },
+  { label: "Library", href: "/library" },
   { label: "Report", href: "/report" },
   { label: "Settings", href: "/settings", managerOnly: true },
 ];
