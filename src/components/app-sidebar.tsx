@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
+  Activity,
   BarChart3,
   Building2,
   Clapperboard,
@@ -99,6 +100,13 @@ const TIKTOK_ITEMS: NavItem[] = [
 ];
 
 const TOOLS: NavItem[] = [
+  {
+    label: "Monitoring",
+    href: "/monitoring",
+    icon: Activity,
+    managerOnly: true,
+    pageKey: "monitoring",
+  },
   {
     label: "Creative Lab",
     href: "/creative-lab",

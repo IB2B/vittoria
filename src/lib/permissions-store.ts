@@ -8,6 +8,7 @@ export const PAGE_KEYS = [
   "clients",
   "business_managers",
   "import",
+  "monitoring",
   "creative_lab",
   "business_intelligence",
   "reels_lab",
@@ -21,6 +22,7 @@ export const PAGE_LABELS: Record<PageKey, string> = {
   clients: "Clients",
   business_managers: "Business Managers",
   import: "Connect account",
+  monitoring: "Monitoring",
   creative_lab: "Creative Lab",
   business_intelligence: "Business Intelligence",
   reels_lab: "Reels Lab",
@@ -33,7 +35,7 @@ export const PAGE_LABELS: Record<PageKey, string> = {
 export const DEFAULT_PERMISSIONS: Record<Role, PageKey[]> = {
   ADMIN: [...PAGE_KEYS],
   MANAGER: PAGE_KEYS.filter((k) => k !== "team"),
-  VIEWER: ["dashboard", "reports", "clients", "business_intelligence"],
+  VIEWER: ["dashboard", "reports", "clients", "monitoring", "business_intelligence"],
   CLIENT: ["dashboard", "reports"],
 };
 

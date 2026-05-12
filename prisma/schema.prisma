@@ -52,6 +52,7 @@ model Client {
   orders     Order[]
   channelStats ChannelStat[]
   libraryItems ClientLibraryItem[]
+  monitoringAlerts MonitoringAlert[]
   createdAt  DateTime    @default(now())
   updatedAt  DateTime    @updatedAt
 }
@@ -165,6 +166,51 @@ model ChannelStat {
   updatedAt   DateTime @updatedAt
 
   @@index([clientId, channel, rangeStart])
+}
+
+enum MonitoringSeverity {
+  CRITICAL
+  HIGH
+  MEDIUM
+  LOW
+  INFO
+}
+
+enum MonitoringStatus {
+  OPEN
+  RESOLVED
+  DISMISSED
+}
+
+// Alerts produced by the nightly monitoring engine (src/lib/monitoring/*).
+// Each row describes one detected anomaly (CPL spike, dry day, dead creative,
+// etc.), bundled with an AI-refined suggestion. The user resolves/dismisses
+// from /monitoring; status transitions are audit-logged.
+model MonitoringAlert {
+  id           String             @id @default(cuid())
+  clientId     String
+  client       Client             @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  campaignId   String?
+  campaignName String?
+  category     String
+  title        String
+  description  String
+  suggestion   String
+  severity     MonitoringSeverity
+  status       MonitoringStatus   @default(OPEN)
+  metrics      Json
+  // Dedup key: same client + category + campaign + window day. If the engine
+  // detects the SAME issue tomorrow, we update detectedAt + metrics on the
+  // existing row instead of spamming new ones. Manually-resolved alerts that
+  // re-fire create new rows so the user sees "this came back".
+  dedupKey     String
+  detectedAt   DateTime           @default(now())
+  resolvedAt   DateTime?
+  resolvedBy   String?
+
+  @@unique([dedupKey])
+  @@index([clientId, status, severity])
+  @@index([status, severity, detectedAt])
 }
 
 enum ClientLibraryItemType {
