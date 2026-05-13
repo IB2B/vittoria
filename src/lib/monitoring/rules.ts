@@ -35,6 +35,13 @@ export type DetectedAlert = {
   dedupKey: string;
 };
 
+export type SyncErrorInfo = {
+  adAccountId: string;
+  metaAccountId: string;
+  errorMessage: string;
+  lastSyncedAt: Date | null;
+};
+
 export type RuleContext = {
   clientId: string;
   clientName: string;
@@ -43,6 +50,12 @@ export type RuleContext = {
   twoDaysAgo: DaySnapshot | null;
   baseline: Baseline;
   currency: string;
+  // Was the client genuinely active in the prior week? Lets us tell apart
+  // "newly onboarded, never spent" from "previously active, just went silent".
+  hadRecentActivity: boolean;
+  // Sync errors recorded on AdAccount rows. Surfaced as CRITICAL alerts
+  // because they block the entire monitoring pipeline for that client.
+  syncErrors: SyncErrorInfo[];
 };
 
 const fmt = (n: number | null | undefined, locale = "it-IT", digits = 2) =>
@@ -207,8 +220,92 @@ function ruleDeadCreative(ctx: RuleContext): DetectedAlert | null {
   };
 }
 
+// Account-level sync errors from Meta — billing blocked, account disabled,
+// token revoked, etc. Highest priority because the ENTIRE client goes dark
+// until the agency fixes it. One alert per failing ad account.
+function rulesForSyncErrors(ctx: RuleContext): DetectedAlert[] {
+  return ctx.syncErrors.map((err) => {
+    const errMsg = err.errorMessage.toLowerCase();
+    const isBilling =
+      errMsg.includes("billing") ||
+      errMsg.includes("payment") ||
+      errMsg.includes("funding source");
+    const isDisabled =
+      errMsg.includes("disabled") ||
+      errMsg.includes("not_authorized") ||
+      errMsg.includes("permission");
+    const isTokenIssue =
+      errMsg.includes("token") ||
+      errMsg.includes("oauth") ||
+      errMsg.includes("expired");
+
+    const title = isBilling
+      ? "Ad account billing issue — campaigns will be stopped"
+      : isDisabled
+        ? "Ad account is disabled or access was revoked"
+        : isTokenIssue
+          ? "System User token rejected by Meta"
+          : "Meta API rejected the sync for this ad account";
+
+    const suggestion = isBilling
+      ? "Open Meta Business Manager → Billing & payments → fix the funding source / outstanding invoice. Campaigns auto-resume once Meta accepts the next charge."
+      : isDisabled
+        ? "Check Business Manager → Ad accounts → status. Could be a policy violation, a manual disable, or your System User losing 'Manage' permission. Reinstate access, then click Refresh on the client."
+        : isTokenIssue
+          ? "Regenerate the System User token in Business Manager → Users → System Users → your user → Generate New Token (scopes: ads_read, ads_management, business_management, read_insights). Paste it on Vittoria's /clients/import or the client's Settings page."
+          : `Meta returned: "${err.errorMessage}". Open the client's Settings page → reconnect the ad account with a fresh token, or check Ads Manager for the underlying issue.`;
+
+    return {
+      category: "sync_error",
+      title,
+      description: `Last sync attempt for ad account ${err.metaAccountId} failed${
+        err.lastSyncedAt
+          ? ` (last successful: ${err.lastSyncedAt.toISOString().slice(0, 10)})`
+          : " — never synced successfully"
+      }. Meta said: "${err.errorMessage}". No new insights can be pulled until this clears.`,
+      suggestion,
+      severity: "CRITICAL",
+      metrics: {
+        metaAccountId: err.metaAccountId,
+        errorMessage: err.errorMessage,
+        lastSyncedAt: err.lastSyncedAt?.toISOString() ?? null,
+      },
+      dedupKey: `${ctx.clientId}:sync_error:${err.adAccountId}:${ctx.yesterday.date}`,
+    };
+  });
+}
+
+// Client was active in the baseline window but yesterday had zero spend AND
+// zero impressions. Distinguishes "went dark" (paused / out of budget / blocked)
+// from "client never had activity to begin with".
+function ruleWentDark(ctx: RuleContext): DetectedAlert | null {
+  const k = ctx.yesterday.current;
+  if (k.spend > 0 || k.impressions > 0) return null;
+  if (!ctx.hadRecentActivity) return null; // never-active clients aren't dark
+  // If a sync error was already raised, don't double-report — that rule's
+  // suggestion is more actionable.
+  if (ctx.syncErrors.length > 0) return null;
+
+  const baselineSpend = ctx.baseline.medianDailySpend;
+  return {
+    category: "went_dark",
+    title: "Campaigns went silent — zero spend yesterday",
+    description: `Median daily spend over the prior 7 days was ${money(baselineSpend, ctx.currency)}, but yesterday delivered 0 impressions on 0 spend. Either every campaign is paused, the daily budget is exhausted before midnight, or Meta auto-paused for a reason.`,
+    suggestion:
+      "Check Ads Manager → are campaigns set to 'Active' and within their schedule? Look at the 'Delivery' column for hints (Learning Limited, Audience Saturation, Budget Constraint). If it's billing, also check Billing → payment methods. After fixing, click Refresh on the client to confirm data flows again.",
+    severity: "CRITICAL",
+    metrics: {
+      baselineDailySpend: baselineSpend,
+      yesterdaySpend: 0,
+      yesterdayImpressions: 0,
+    },
+    dedupKey: `${ctx.clientId}:went_dark:${ctx.yesterday.date}`,
+  };
+}
+
 // All rules in priority order. Each rule returns null or one alert.
 const RULES = [
+  ruleWentDark,
   ruleDryDay,
   ruleCplSpike,
   ruleCpaSpike,
@@ -218,6 +315,8 @@ const RULES = [
 
 export function runRules(ctx: RuleContext): DetectedAlert[] {
   const out: DetectedAlert[] = [];
+  // Sync-error alerts come first because they explain everything else.
+  out.push(...rulesForSyncErrors(ctx));
   for (const rule of RULES) {
     const alert = rule(ctx);
     if (alert) out.push(alert);

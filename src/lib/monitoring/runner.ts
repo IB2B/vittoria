@@ -4,7 +4,12 @@ import { prisma } from "@/lib/db";
 import { assembleClientInsights } from "@/lib/insights-assembly";
 import type { DateRange } from "@/lib/meta";
 
-import { runRules, type Baseline, type RuleContext } from "./rules";
+import {
+  runRules,
+  type Baseline,
+  type RuleContext,
+  type SyncErrorInfo,
+} from "./rules";
 
 const ISO = "yyyy-MM-dd";
 
@@ -93,7 +98,13 @@ export async function runMonitoring(): Promise<MonitoringRunResult> {
       name: true,
       adAccounts: {
         where: { channel: "META" },
-        select: { currency: true },
+        select: {
+          id: true,
+          currency: true,
+          metaAccountId: true,
+          lastSyncError: true,
+          lastSyncedAt: true,
+        },
       },
     },
   });
@@ -109,6 +120,19 @@ export async function runMonitoring(): Promise<MonitoringRunResult> {
     try {
       const currency = client.adAccounts[0]?.currency ?? "EUR";
 
+      // Sync errors are noticed even when Meta returns no data — they're
+      // surfaced as CRITICAL alerts directly, independent of insights.
+      const syncErrors: SyncErrorInfo[] = client.adAccounts
+        .filter((a) => a.lastSyncError)
+        .map((a) => ({
+          adAccountId: a.id,
+          metaAccountId: a.metaAccountId,
+          errorMessage: a.lastSyncError ?? "Unknown sync error",
+          lastSyncedAt: a.lastSyncedAt,
+        }));
+
+      // Pull yesterday + the day before. If Meta is blocked, these may be
+      // zeros — runRules handles the "went dark" + "sync error" cases below.
       const [yIns, twoIns] = await Promise.all([
         assembleClientInsights({
           clientId: client.id,
@@ -116,7 +140,7 @@ export async function runMonitoring(): Promise<MonitoringRunResult> {
             since: format(yesterday, ISO),
             until: format(yesterday, ISO),
           },
-        }),
+        }).catch(() => null),
         assembleClientInsights({
           clientId: client.id,
           range: {
@@ -126,23 +150,54 @@ export async function runMonitoring(): Promise<MonitoringRunResult> {
         }).catch(() => null),
       ]);
 
-      // Skip clients with no Meta activity at all yesterday.
-      if (yIns.combined.spend === 0 && yIns.combined.impressions === 0) {
+      // If we couldn't even assemble yesterday's snapshot AND we don't have
+      // a sync error to explain it, skip this client (likely zero ad accounts
+      // connected). Don't pollute the dashboard with noise.
+      if (!yIns && syncErrors.length === 0) {
         continue;
       }
 
-      // Determine campaign profile from yesterday's combined metrics.
-      const k = yIns.combined;
+      const yCombined = yIns?.combined ?? {
+        spend: 0,
+        impressions: 0,
+        reach: 0,
+        frequency: null,
+        cpm: null,
+        linkClicks: 0,
+        cpcLink: null,
+        ctrLink: null,
+        landingPageViews: 0,
+        costPerLpv: null,
+        addToCart: 0,
+        initiateCheckout: 0,
+        leads: 0,
+        costPerLead: null,
+        purchasesPixel: 0,
+        revenuePixel: 0,
+        cpaPixel: null,
+        roasPixel: null,
+        purchasesReal: 0,
+        revenueReal: 0,
+        cpaReal: null,
+        roasReal: null,
+      };
+      const twoCombined = twoIns?.combined ?? null;
+
+      // Determine campaign profile from yesterday's combined metrics — or
+      // fall back to "awareness" if the client is dark.
       const profile =
-        k.leads > 0 && k.purchasesReal > 0
+        yCombined.leads > 0 && yCombined.purchasesReal > 0
           ? "mixed"
-          : k.leads > 0
+          : yCombined.leads > 0
             ? "lead_gen"
-            : k.purchasesReal > 0
+            : yCombined.purchasesReal > 0
               ? "ecommerce"
               : "awareness";
 
       const baseline = await buildBaseline(client.id, today);
+      // "Had recent activity" = ≥1 day in the prior week with spend > 0.
+      // Lets ruleWentDark distinguish "just paused" from "never active".
+      const hadRecentActivity = baseline.medianDailySpend > 0;
 
       const ctx: RuleContext = {
         clientId: client.id,
@@ -150,17 +205,19 @@ export async function runMonitoring(): Promise<MonitoringRunResult> {
         campaignProfile: isProfile(profile) ? profile : "awareness",
         yesterday: {
           date: format(yesterday, ISO),
-          current: yIns.combined,
+          current: yCombined,
         },
         twoDaysAgo:
-          twoIns != null
+          twoCombined != null
             ? {
                 date: format(twoDaysAgo, ISO),
-                current: twoIns.combined,
+                current: twoCombined,
               }
             : null,
         baseline,
         currency,
+        hadRecentActivity,
+        syncErrors,
       };
 
       const detected = runRules(ctx);
