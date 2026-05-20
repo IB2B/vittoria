@@ -25,6 +25,7 @@ import { isAdmin } from "@/lib/permissions";
 import { formatCurrencyDetailed, formatNumber } from "@/lib/format";
 import { decryptToken } from "@/lib/crypto";
 import {
+  getOwningBusinessId,
   listAdAccountAssignedUsers,
   type AssignedUser,
 } from "@/lib/meta";
@@ -61,14 +62,45 @@ export default async function ClientSettingsPage({
   if (adminViewing) {
     const fullAccounts = await prisma.adAccount.findMany({
       where: { clientId: client.id, channel: "META" },
-      select: { id: true, metaAccountId: true, accessTokenEnc: true },
+      select: {
+        id: true,
+        metaAccountId: true,
+        accessTokenEnc: true,
+        businessId: true,
+      },
     });
     await Promise.all(
       fullAccounts.map(async (acc) => {
         try {
           const token = decryptToken(acc.accessTokenEnc);
+          let realBmId = acc.businessId;
+          if (!realBmId || realBmId.startsWith("vittoria_bm_")) {
+            const owner = await getOwningBusinessId({
+              metaAccountId: acc.metaAccountId,
+              accessToken: token,
+            });
+            realBmId = owner?.id ?? null;
+            if (owner) {
+              await prisma.adAccount.update({
+                where: { id: acc.id },
+                data: {
+                  businessId: owner.id,
+                  businessName: owner.name ?? undefined,
+                },
+              });
+            }
+          }
+          if (!realBmId) {
+            accessByAdAccount[acc.id] = {
+              assigned: [],
+              error:
+                "Ad account isn't under a Business Manager Meta recognises.",
+            };
+            return;
+          }
           const assigned = await listAdAccountAssignedUsers({
             adAccountId: acc.metaAccountId,
+            businessId: realBmId,
             accessToken: token,
             bucketKey: `${acc.id}:assigned-users`,
           });

@@ -12,10 +12,37 @@ import {
   AD_ACCOUNT_TASKS,
   MetaApiError,
   assignUserToAdAccount,
+  getOwningBusinessId,
   removeUserFromAdAccount,
   resolveUserIdFromEmail,
   type AdAccountTask,
 } from "@/lib/meta";
+
+// Some ad accounts in our DB carry a synthetic `vittoria_bm_*` businessId
+// (minted when the user names an "Unassigned" BM via Edit dialog). Meta's
+// user-management endpoints reject anything but a real BM id, so we ask
+// Meta who owns the account and backfill our DB on the fly.
+async function resolveRealBusinessId(account: {
+  id: string;
+  metaAccountId: string;
+  accessTokenEnc: string;
+  businessId: string | null;
+}): Promise<string | null> {
+  if (account.businessId && !account.businessId.startsWith("vittoria_bm_")) {
+    return account.businessId;
+  }
+  const token = decryptToken(account.accessTokenEnc);
+  const owner = await getOwningBusinessId({
+    metaAccountId: account.metaAccountId,
+    accessToken: token,
+  });
+  if (!owner) return null;
+  await prisma.adAccount.update({
+    where: { id: account.id },
+    data: { businessId: owner.id, businessName: owner.name ?? undefined },
+  });
+  return owner.id;
+}
 
 const assignSchema = z.object({
   adAccountId: z.string().min(1),
@@ -73,10 +100,12 @@ export async function assignUserAction(
     },
   });
   if (!account) return { error: "Ad account not found" };
-  if (!account.businessId) {
+
+  const realBusinessId = await resolveRealBusinessId(account);
+  if (!realBusinessId) {
     return {
       error:
-        "This ad account isn't tagged with a Business Manager yet. Re-run the BM import (Clients → Import from BM) to backfill businessId.",
+        "This ad account isn't tied to a Business Manager Meta recognises. Move it under a real BM in Meta Business Manager, then retry.",
     };
   }
 
@@ -87,7 +116,7 @@ export async function assignUserAction(
   let userInfo: { id: string; name?: string } | null = null;
   try {
     userInfo = await resolveUserIdFromEmail({
-      businessId: account.businessId,
+      businessId: realBusinessId,
       emailOrId: parsed.data.emailOrUserId,
       accessToken: token,
     });
@@ -109,6 +138,7 @@ export async function assignUserAction(
   try {
     await assignUserToAdAccount({
       adAccountId: account.metaAccountId,
+      businessId: realBusinessId,
       userId: userInfo.id,
       tasks,
       accessToken: token,
@@ -166,14 +196,28 @@ export async function removeUserAction(
 
   const account = await prisma.adAccount.findUnique({
     where: { id: parsed.data.adAccountId },
-    select: { id: true, accessTokenEnc: true, metaAccountId: true },
+    select: {
+      id: true,
+      accessTokenEnc: true,
+      metaAccountId: true,
+      businessId: true,
+    },
   });
   if (!account) return { error: "Ad account not found" };
+
+  const realBusinessId = await resolveRealBusinessId(account);
+  if (!realBusinessId) {
+    return {
+      error:
+        "This ad account isn't tied to a Business Manager Meta recognises.",
+    };
+  }
 
   const token = decryptToken(account.accessTokenEnc);
   try {
     await removeUserFromAdAccount({
       adAccountId: account.metaAccountId,
+      businessId: realBusinessId,
       userId: parsed.data.userId,
       accessToken: token,
     });

@@ -43,6 +43,7 @@ export {
   resolveUserIdFromEmail,
   assignUserToAdAccount,
   removeUserFromAdAccount,
+  getOwningBusinessId,
   AD_ACCOUNT_TASKS,
   type AdAccountTask,
   type BusinessUser,

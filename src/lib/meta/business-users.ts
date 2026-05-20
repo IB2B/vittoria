@@ -37,6 +37,30 @@ export type AssignedUser = {
   tasks: string[];
 };
 
+// Resolves the REAL Meta Business Manager id that owns an ad account by
+// asking Meta directly. Use this whenever the stored `AdAccount.businessId`
+// might be synthetic (those that came from our Edit BM dialog start with
+// `vittoria_bm_`) — Meta's BM-membership and assigned-users endpoints both
+// reject anything that isn't a real BM id Meta knows about.
+export async function getOwningBusinessId(params: {
+  metaAccountId: string;
+  accessToken: string;
+}): Promise<{ id: string; name?: string } | null> {
+  try {
+    const r = await metaGet<{
+      id: string;
+      business?: { id: string; name?: string };
+    }>(
+      params.metaAccountId,
+      { fields: ["id", "business"] },
+      { accessToken: params.accessToken },
+    );
+    return r.business ? { id: r.business.id, name: r.business.name } : null;
+  } catch {
+    return null;
+  }
+}
+
 // Lists every member of the Business Manager (humans, not system users).
 export async function listBusinessUsers(params: {
   businessId: string;
@@ -50,10 +74,11 @@ export async function listBusinessUsers(params: {
   );
 }
 
-// Lists every user currently assigned to a specific ad account, including
-// their tasks (the permissions Meta exposes per assignment).
+// Lists every user currently assigned to a specific ad account. Meta now
+// requires `business=<bm-id>` on this endpoint, so we always pass it.
 export async function listAdAccountAssignedUsers(params: {
   adAccountId: string;
+  businessId: string;
   accessToken: string;
   bucketKey?: string;
 }): Promise<AssignedUser[]> {
@@ -66,7 +91,7 @@ export async function listAdAccountAssignedUsers(params: {
     `${params.adAccountId}/assigned_users`,
     {
       fields: ["id", "name", "email", "tasks"],
-      business: undefined,
+      business: params.businessId,
       limit: 100,
     },
     { accessToken: params.accessToken, bucketKey: params.bucketKey },
@@ -151,15 +176,17 @@ async function postForm(
 
 // Assigns an existing BM user to one ad account with the given tasks. The
 // user MUST already be a member of the same Business Manager that owns the
-// ad account (Meta rejects otherwise — invite them via Business Manager UI
-// or POST /<biz>/business_users first).
+// ad account. `businessId` must be the REAL Meta BM id; resolve via
+// `getOwningBusinessId` if you're unsure.
 export async function assignUserToAdAccount(params: {
   adAccountId: string;
+  businessId: string;
   userId: string;
   tasks: AdAccountTask[];
   accessToken: string;
 }): Promise<void> {
   const body = new URLSearchParams({
+    business: params.businessId,
     user: params.userId,
     tasks: params.tasks.join(","),
   });
@@ -175,10 +202,14 @@ export async function assignUserToAdAccount(params: {
 // ad account.
 export async function removeUserFromAdAccount(params: {
   adAccountId: string;
+  businessId: string;
   userId: string;
   accessToken: string;
 }): Promise<void> {
-  const body = new URLSearchParams({ user: params.userId });
+  const body = new URLSearchParams({
+    business: params.businessId,
+    user: params.userId,
+  });
   await postForm(
     `${params.adAccountId}/assigned_users`,
     body,
