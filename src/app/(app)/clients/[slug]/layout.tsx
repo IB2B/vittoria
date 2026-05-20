@@ -38,7 +38,10 @@ export default async function ClientLayout({
           </div>
         </div>
       </header>
-      <ClientSubnav slug={slug} isManager={user.role === "MANAGER"} />
+      <ClientSubnav
+        slug={slug}
+        isManager={user.role === "MANAGER" || user.role === "ADMIN"}
+      />
       {children}
     </div>
   );
