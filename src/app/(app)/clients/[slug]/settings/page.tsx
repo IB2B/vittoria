@@ -21,12 +21,19 @@ import {
 import { prisma } from "@/lib/db";
 import { requireManager } from "@/lib/auth-helpers";
 import { getClientForUser } from "@/lib/clients";
+import { isAdmin } from "@/lib/permissions";
 import { formatCurrencyDetailed, formatNumber } from "@/lib/format";
+import { decryptToken } from "@/lib/crypto";
+import {
+  listAdAccountAssignedUsers,
+  type AssignedUser,
+} from "@/lib/meta";
 
 import { ConnectAccountForm } from "./connect-form";
 import { disconnectAdAccountAction } from "./actions";
 import { GoogleStatsForm } from "./google-stats-form";
 import { deleteGoogleStatAction } from "./google-actions";
+import { AccountAccessSection } from "./account-access-section";
 
 export default async function ClientSettingsPage({
   params,
@@ -42,6 +49,42 @@ export default async function ClientSettingsPage({
     orderBy: { rangeStart: "desc" },
     take: 24,
   });
+
+  // Fetch assigned-users-per-Meta-ad-account (admin-only UI). Each lookup is
+  // one live call to Meta; only run when the viewer is admin to keep page
+  // load cheap for managers/viewers.
+  const adminViewing = isAdmin(user);
+  const accessByAdAccount: Record<
+    string,
+    { assigned: AssignedUser[]; error: string | null }
+  > = {};
+  if (adminViewing) {
+    const fullAccounts = await prisma.adAccount.findMany({
+      where: { clientId: client.id, channel: "META" },
+      select: { id: true, metaAccountId: true, accessTokenEnc: true },
+    });
+    await Promise.all(
+      fullAccounts.map(async (acc) => {
+        try {
+          const token = decryptToken(acc.accessTokenEnc);
+          const assigned = await listAdAccountAssignedUsers({
+            adAccountId: acc.metaAccountId,
+            accessToken: token,
+            bucketKey: `${acc.id}:assigned-users`,
+          });
+          accessByAdAccount[acc.id] = { assigned, error: null };
+        } catch (err) {
+          accessByAdAccount[acc.id] = {
+            assigned: [],
+            error:
+              err instanceof Error
+                ? err.message
+                : "Couldn't load assigned users",
+          };
+        }
+      }),
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -111,6 +154,15 @@ export default async function ClientSettingsPage({
                           </>
                         ) : null}
                       </div>
+                      {adminViewing ? (
+                        <AccountAccessSection
+                          adAccountId={acc.id}
+                          metaAccountId={acc.metaAccountId}
+                          slug={slug}
+                          assigned={accessByAdAccount[acc.id]?.assigned ?? []}
+                          loadError={accessByAdAccount[acc.id]?.error ?? null}
+                        />
+                      ) : null}
                       <form
                         action={disconnectAdAccountAction}
                         className="flex justify-end"

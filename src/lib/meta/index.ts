@@ -37,6 +37,17 @@ export {
   type MetaAdSet,
   type AdSetMeta,
 } from "./adsets";
+export {
+  listBusinessUsers,
+  listAdAccountAssignedUsers,
+  resolveUserIdFromEmail,
+  assignUserToAdAccount,
+  removeUserFromAdAccount,
+  AD_ACCOUNT_TASKS,
+  type AdAccountTask,
+  type BusinessUser,
+  type AssignedUser,
+} from "./business-users";
 export { getInsights } from "./cache";
 export type {
   MetaActionStat,
