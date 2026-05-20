@@ -119,7 +119,13 @@ export default async function CampaignsPage({
         </Button>
       </CardHeader>
       <CardContent>
-        <CampaignsTable rows={visibleRows} currency={currency} />
+        <CampaignsTable
+          rows={visibleRows}
+          currency={currency}
+          clientId={client.id}
+          slug={slug}
+          canToggle={user.role === "ADMIN"}
+        />
       </CardContent>
     </Card>
   );

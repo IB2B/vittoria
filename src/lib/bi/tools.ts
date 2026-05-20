@@ -8,10 +8,15 @@ import { loadDashboardRollup } from "@/lib/dashboard-rollup";
 import { safeAuditLog } from "@/lib/audit";
 import {
   classifyObjective,
+  fetchInsights,
+  getAdSetStatusMap,
   getCampaignStatusMap,
   isActiveEffectiveStatus,
+  setAdSetStatus,
   setCampaignStatus,
+  summarizeByAdSet,
   type DateRange,
+  type MetaInsightRow,
 } from "@/lib/meta";
 
 const ISO = "yyyy-MM-dd";
@@ -118,6 +123,20 @@ export const READ_TOOLS: ToolDef[] = [
     },
   },
   {
+    name: "list_adsets",
+    description:
+      "List every ad set for a client with spend, impressions, CTR, leads/purchases, ROAS/CPL, and effective_status. Includes the parent campaign name. Use after the user asks about ad-set-level performance, e.g. 'which ad set is wasting budget?'",
+    input_schema: {
+      type: "object",
+      properties: {
+        slug: { type: "string" },
+        range: { type: "string", enum: [...RANGE_PRESETS] },
+        active_only: { type: "boolean" },
+      },
+      required: ["slug"],
+    },
+  },
+  {
     name: "get_top_campaigns",
     description:
       "Get the top N campaigns ACROSS ALL CLIENTS, ranked by metric (spend, roas, or leads). Each row tags its client name + slug.",
@@ -149,6 +168,23 @@ export const ADMIN_TOOLS: ToolDef[] = [
         status: { type: "string", enum: ["ACTIVE", "PAUSED"] },
       },
       required: ["slug", "campaign_id", "status"],
+    },
+  },
+  {
+    name: "set_adset_status",
+    description:
+      "**ADMIN ONLY · DESTRUCTIVE.** Pauses or activates a Meta ad set. Same confirmation rule as set_campaign_status — describe the ad set by name + spend, get a 'yes' from the user, then call.",
+    input_schema: {
+      type: "object",
+      properties: {
+        slug: { type: "string", description: "Client slug" },
+        adset_id: {
+          type: "string",
+          description: "Meta ad set id (numeric string)",
+        },
+        status: { type: "string", enum: ["ACTIVE", "PAUSED"] },
+      },
+      required: ["slug", "adset_id", "status"],
     },
   },
 ];
@@ -194,6 +230,23 @@ export async function runTool(
       return await toolSetCampaignStatus(
         String(input.slug ?? ""),
         String(input.campaign_id ?? ""),
+        (input.status as "ACTIVE" | "PAUSED") ?? "PAUSED",
+        ctx,
+      );
+    }
+    case "list_adsets":
+      return await toolListAdSets(
+        String(input.slug ?? ""),
+        (input.range as RangePreset) ?? "30d",
+        input.active_only !== false,
+      );
+    case "set_adset_status": {
+      if (ctx.role !== Role.ADMIN) {
+        return { error: "set_adset_status is restricted to ADMIN role." };
+      }
+      return await toolSetAdSetStatus(
+        String(input.slug ?? ""),
+        String(input.adset_id ?? ""),
         (input.status as "ACTIVE" | "PAUSED") ?? "PAUSED",
         ctx,
       );
@@ -422,6 +475,129 @@ async function toolSetCampaignStatus(
       lastErr instanceof Error
         ? lastErr.message
         : "Failed to update campaign status.",
+  };
+}
+
+async function toolListAdSets(
+  slug: string,
+  preset: RangePreset,
+  activeOnly: boolean,
+) {
+  const client = await prisma.client.findUnique({
+    where: { slug },
+    select: {
+      id: true,
+      name: true,
+      adAccounts: {
+        where: { channel: "META" },
+        select: { metaAccountId: true, accessTokenEnc: true, id: true },
+      },
+    },
+  });
+  if (!client) return { error: `No client found with slug "${slug}".` };
+  if (client.adAccounts.length === 0) {
+    return { error: `${client.name} has no Meta ad account connected.` };
+  }
+  const range = presetToRange(preset);
+
+  // Ad-set insights are live-fetched per account (no snapshot cache).
+  const liveRows: MetaInsightRow[] = [];
+  for (const account of client.adAccounts) {
+    try {
+      const token = decryptToken(account.accessTokenEnc);
+      const rows = await fetchInsights({
+        metaAccountId: account.metaAccountId,
+        accessToken: token,
+        range,
+        level: "adset",
+        bucketKey: `${account.id}:adset-insights:bi`,
+      });
+      liveRows.push(...rows);
+    } catch {
+      // ignore per-account failures
+    }
+  }
+
+  const statusMap = await getAdSetStatusMap(client.id);
+  const summary = summarizeByAdSet(liveRows);
+  const all = summary.map((s) => {
+    const meta = statusMap.get(s.adsetId);
+    return {
+      adset_id: s.adsetId,
+      name: s.adsetName,
+      campaign: s.campaignName,
+      effective_status: meta?.effectiveStatus ?? "unknown",
+      daily_budget: meta?.dailyBudget ?? null,
+      spend: round2(s.spend),
+      impressions: s.impressions,
+      ctr_pct: s.ctrLink != null ? round2(s.ctrLink * 100) : null,
+      leads: s.leads,
+      cost_per_lead: round2(s.costPerLead),
+      purchases: s.purchasesPixel,
+      roas: round2(s.roasPixel),
+    };
+  });
+  return {
+    client: client.name,
+    slug,
+    range,
+    adsets: activeOnly
+      ? all.filter((a) => isActiveEffectiveStatus(a.effective_status))
+      : all,
+  };
+}
+
+async function toolSetAdSetStatus(
+  slug: string,
+  adSetId: string,
+  status: "ACTIVE" | "PAUSED",
+  ctx: ToolContext,
+) {
+  const client = await prisma.client.findUnique({
+    where: { slug },
+    select: {
+      id: true,
+      name: true,
+      adAccounts: {
+        where: { channel: "META" },
+        select: { metaAccountId: true, accessTokenEnc: true, id: true },
+      },
+    },
+  });
+  if (!client) return { error: `No client found with slug "${slug}".` };
+  if (client.adAccounts.length === 0) {
+    return { error: `${client.name} has no Meta ad account connected.` };
+  }
+  let lastErr: unknown = null;
+  for (const account of client.adAccounts) {
+    try {
+      const token = decryptToken(account.accessTokenEnc);
+      await setAdSetStatus({
+        adSetId,
+        accessToken: token,
+        status,
+        bucketKey: `${account.id}:adset-edit`,
+      });
+      await safeAuditLog({
+        userId: ctx.userId,
+        action: "adset.setStatus",
+        meta: { clientSlug: slug, adSetId, status, adAccountId: account.id },
+      });
+      return {
+        ok: true,
+        client: client.name,
+        adset_id: adSetId,
+        new_status: status,
+      };
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  return {
+    error:
+      lastErr instanceof Error
+        ? lastErr.message
+        : "Failed to update ad set status.",
   };
 }
 

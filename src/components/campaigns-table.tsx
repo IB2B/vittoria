@@ -13,6 +13,7 @@ import { ArrowUpDown, ShoppingCart, UserPlus } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { CampaignStatusToggle } from "@/components/campaign-status-toggle";
 import {
   Table,
   TableBody,
@@ -61,9 +62,18 @@ function pickConversionMode(row: CampaignRow): "leads" | "sales" {
 export function CampaignsTable({
   rows,
   currency,
+  // When provided + canToggle=true, an admin-only pause/play icon appears on
+  // each row. Pages that don't need the toggle (overview, reports) skip
+  // these props and the column is omitted.
+  clientId,
+  slug,
+  canToggle = false,
 }: {
   rows: CampaignRow[];
   currency: string;
+  clientId?: string;
+  slug?: string;
+  canToggle?: boolean;
 }) {
   const [sorting, setSorting] = useState<SortingState>([
     { id: "spend", desc: true },
@@ -201,8 +211,31 @@ export function CampaignsTable({
           );
         },
       },
+      ...(canToggle && clientId && slug
+        ? [
+            {
+              id: "actions",
+              header: "",
+              cell: ({
+                row,
+              }: {
+                row: { original: CampaignRow };
+              }) => (
+                <div className="flex justify-end">
+                  <CampaignStatusToggle
+                    clientId={clientId}
+                    slug={slug}
+                    campaignId={row.original.campaignId}
+                    campaignName={row.original.campaignName}
+                    effectiveStatus={row.original.effectiveStatus}
+                  />
+                </div>
+              ),
+            } satisfies ColumnDef<CampaignRow>,
+          ]
+        : []),
     ];
-  }, [currency]);
+  }, [currency, canToggle, clientId, slug]);
 
   const table = useReactTable({
     data: rows,

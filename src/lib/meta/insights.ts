@@ -261,6 +261,36 @@ export function summarizeInsights(
   };
 }
 
+export function summarizeByAdSet(
+  rows: MetaInsightRow[],
+): Array<
+  KpiSummary & {
+    adsetId: string;
+    adsetName: string;
+    campaignId?: string;
+    campaignName?: string;
+  }
+> {
+  const buckets = new Map<string, MetaInsightRow[]>();
+  for (const row of rows) {
+    const id = row.adset_id ?? "";
+    if (!id) continue;
+    const list = buckets.get(id) ?? [];
+    list.push(row);
+    buckets.set(id, list);
+  }
+  return Array.from(buckets.entries()).map(([adsetId, group]) => {
+    const summary = summarizeInsights(group);
+    return {
+      adsetId,
+      adsetName: group[0]?.adset_name ?? adsetId,
+      campaignId: group[0]?.campaign_id,
+      campaignName: group[0]?.campaign_name,
+      ...summary,
+    };
+  });
+}
+
 export function summarizeByCampaign(
   rows: MetaInsightRow[],
 ): Array<KpiSummary & { campaignId: string; campaignName: string }> {

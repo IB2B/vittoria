@@ -4,6 +4,7 @@ export {
   fetchAccountReach,
   summarizeInsights,
   summarizeByCampaign,
+  summarizeByAdSet,
   dailyTimeSeries,
   classifyObjective,
   INSIGHT_FIELDS,
@@ -25,7 +26,17 @@ export {
   isActiveEffectiveStatus,
   type CampaignMeta,
 } from "./campaign-status";
-export { setCampaignStatus, type CampaignStatus } from "./edit";
+export {
+  setCampaignStatus,
+  setAdSetStatus,
+  type CampaignStatus,
+} from "./edit";
+export {
+  listAdSets,
+  getAdSetStatusMap,
+  type MetaAdSet,
+  type AdSetMeta,
+} from "./adsets";
 export { getInsights } from "./cache";
 export type {
   MetaActionStat,

@@ -11,24 +11,22 @@ const API_VERSION = process.env.META_API_VERSION ?? "v22.0";
 
 export type CampaignStatus = "ACTIVE" | "PAUSED";
 
-export async function setCampaignStatus({
-  campaignId,
+// Generic POST-with-status helper. Meta's edit endpoint is the same shape
+// for campaigns, ad sets, and ads — just different node IDs.
+async function postStatus({
+  nodeId,
   accessToken,
   status,
   bucketKey,
 }: {
-  campaignId: string;
+  nodeId: string;
   accessToken: string;
   status: CampaignStatus;
-  bucketKey?: string;
+  bucketKey: string;
 }): Promise<{ success: true }> {
-  await acquire(bucketKey ?? accessToken.slice(0, 16));
-
-  const url = new URL(`${BASE}/${API_VERSION}/${campaignId}`);
-  const body = new URLSearchParams({
-    status,
-    access_token: accessToken,
-  });
+  await acquire(bucketKey);
+  const url = new URL(`${BASE}/${API_VERSION}/${nodeId}`);
+  const body = new URLSearchParams({ status, access_token: accessToken });
 
   const res = await fetch(url.toString(), {
     method: "POST",
@@ -55,6 +53,43 @@ export async function setCampaignStatus({
       },
     );
   }
-
   return { success: true };
+}
+
+export function setCampaignStatus({
+  campaignId,
+  accessToken,
+  status,
+  bucketKey,
+}: {
+  campaignId: string;
+  accessToken: string;
+  status: CampaignStatus;
+  bucketKey?: string;
+}): Promise<{ success: true }> {
+  return postStatus({
+    nodeId: campaignId,
+    accessToken,
+    status,
+    bucketKey: bucketKey ?? `${accessToken.slice(0, 16)}:campaign`,
+  });
+}
+
+export function setAdSetStatus({
+  adSetId,
+  accessToken,
+  status,
+  bucketKey,
+}: {
+  adSetId: string;
+  accessToken: string;
+  status: CampaignStatus;
+  bucketKey?: string;
+}): Promise<{ success: true }> {
+  return postStatus({
+    nodeId: adSetId,
+    accessToken,
+    status,
+    bucketKey: bucketKey ?? `${accessToken.slice(0, 16)}:adset`,
+  });
 }
