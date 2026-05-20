@@ -39,6 +39,7 @@ export {
 } from "./adsets";
 export {
   listBusinessUsers,
+  listPendingBusinessUsers,
   listAdAccountAssignedUsers,
   resolveUserIdFromEmail,
   assignUserToAdAccount,
@@ -47,7 +48,9 @@ export {
   AD_ACCOUNT_TASKS,
   type AdAccountTask,
   type BusinessUser,
+  type PendingBusinessUser,
   type AssignedUser,
+  type ResolveUserResult,
 } from "./business-users";
 export { getInsights } from "./cache";
 export type {

@@ -13,9 +13,13 @@ import {
   MetaApiError,
   assignUserToAdAccount,
   getOwningBusinessId,
+  listBusinessUsers,
+  listPendingBusinessUsers,
   removeUserFromAdAccount,
   resolveUserIdFromEmail,
   type AdAccountTask,
+  type BusinessUser,
+  type PendingBusinessUser,
 } from "@/lib/meta";
 
 // Some ad accounts in our DB carry a synthetic `vittoria_bm_*` businessId
@@ -113,9 +117,9 @@ export async function assignUserAction(
 
   // Resolve email → FB user id by scanning BM membership. If the input is
   // already a numeric id we skip the lookup.
-  let userInfo: { id: string; name?: string } | null = null;
+  let resolved;
   try {
-    userInfo = await resolveUserIdFromEmail({
+    resolved = await resolveUserIdFromEmail({
       businessId: realBusinessId,
       emailOrId: parsed.data.emailOrUserId,
       accessToken: token,
@@ -128,12 +132,22 @@ export async function assignUserAction(
           : "Couldn't look up user.",
     };
   }
-  if (!userInfo) {
+  if (resolved.kind === "pending") {
     return {
-      error:
-        "That email isn't a member of this Business Manager. Add them to the BM first (Meta Business Manager → People → Add).",
+      error: `${resolved.email} hasn't accepted the BM invite yet. Have them open the email from Meta and click Accept — then retry.`,
     };
   }
+  if (resolved.kind === "not_found") {
+    const sample = resolved.knownEmails.slice(0, 6).join(", ");
+    return {
+      error: sample
+        ? `That email isn't a member of this BM. Meta sees these members: ${sample}${
+            resolved.knownEmails.length > 6 ? "…" : ""
+          }. Tip: use the picker below to choose from confirmed members.`
+        : "That email isn't a member of this BM, and Meta returned no member emails (often a privacy/permissions setting). Try pasting the Meta user ID instead, or use the picker.",
+    };
+  }
+  const userInfo = { id: resolved.id, name: resolved.name };
 
   try {
     await assignUserToAdAccount({
@@ -242,4 +256,89 @@ export async function removeUserAction(
 
   revalidatePath(`/clients/${parsed.data.slug}/settings`);
   return { ok: true };
+}
+
+export type BmDirectoryEntry = {
+  id: string;
+  name: string;
+  email?: string;
+  role?: string;
+  status: "active" | "pending";
+};
+
+export type BmDirectoryResult = {
+  members?: BmDirectoryEntry[];
+  error?: string;
+};
+
+// Loads the BM directory (confirmed + pending members) for a given ad
+// account. Used by the access picker so the user picks from what Meta
+// actually sees rather than guessing emails. Admin-only.
+export async function listBmDirectoryAction(
+  adAccountId: string,
+): Promise<BmDirectoryResult> {
+  const user = await requireUser();
+  if (!isAdmin(user)) return { error: "Admin-only." };
+
+  const account = await prisma.adAccount.findUnique({
+    where: { id: adAccountId },
+    select: {
+      id: true,
+      accessTokenEnc: true,
+      metaAccountId: true,
+      businessId: true,
+    },
+  });
+  if (!account) return { error: "Ad account not found" };
+
+  const realBusinessId = await resolveRealBusinessId(account);
+  if (!realBusinessId) {
+    return {
+      error:
+        "This ad account isn't tied to a Business Manager Meta recognises.",
+    };
+  }
+
+  const token = decryptToken(account.accessTokenEnc);
+  let confirmed: BusinessUser[] = [];
+  let pending: PendingBusinessUser[] = [];
+  try {
+    [confirmed, pending] = await Promise.all([
+      listBusinessUsers({
+        businessId: realBusinessId,
+        accessToken: token,
+        bucketKey: `${account.id}:bm-users`,
+      }),
+      listPendingBusinessUsers({
+        businessId: realBusinessId,
+        accessToken: token,
+        bucketKey: `${account.id}:bm-pending`,
+      }),
+    ]);
+  } catch (err) {
+    return {
+      error:
+        err instanceof Error
+          ? `Couldn't load BM directory: ${err.message}`
+          : "Couldn't load BM directory.",
+    };
+  }
+
+  const members: BmDirectoryEntry[] = [
+    ...confirmed.map((u) => ({
+      id: u.id,
+      name: u.name,
+      email: u.email,
+      role: u.role,
+      status: "active" as const,
+    })),
+    ...pending.map((p) => ({
+      id: p.id,
+      name: p.email ?? "Pending invite",
+      email: p.email,
+      role: p.role,
+      status: "pending" as const,
+    })),
+  ];
+  return { members };
 }

@@ -30,6 +30,14 @@ export type BusinessUser = {
   role: string;
 };
 
+export type PendingBusinessUser = {
+  id: string;
+  email?: string;
+  role?: string;
+  status?: string;
+  expirationTime?: string;
+};
+
 export type AssignedUser = {
   id: string;
   name: string;
@@ -74,6 +82,42 @@ export async function listBusinessUsers(params: {
   );
 }
 
+// Lists BM invitations that have not yet been accepted. These can't be
+// assigned to ad accounts yet (Meta refuses until they accept), but we
+// show them so the user knows "oh, my friend hasn't accepted yet".
+export async function listPendingBusinessUsers(params: {
+  businessId: string;
+  accessToken: string;
+  bucketKey?: string;
+}): Promise<PendingBusinessUser[]> {
+  try {
+    const rows = await metaGetAllPages<{
+      id: string;
+      email?: string;
+      role?: string;
+      status?: string;
+      expiration_time?: string;
+    }>(
+      `${params.businessId}/pending_users`,
+      {
+        fields: ["id", "email", "role", "status", "expiration_time"],
+        limit: 100,
+      },
+      { accessToken: params.accessToken, bucketKey: params.bucketKey },
+    );
+    return rows.map((r) => ({
+      id: r.id,
+      email: r.email,
+      role: r.role,
+      status: r.status,
+      expirationTime: r.expiration_time,
+    }));
+  } catch {
+    // Not every BM token exposes pending_users — degrade gracefully.
+    return [];
+  }
+}
+
 // Lists every user currently assigned to a specific ad account. Meta now
 // requires `business=<bm-id>` on this endpoint, so we always pass it.
 export async function listAdAccountAssignedUsers(params: {
@@ -104,6 +148,14 @@ export async function listAdAccountAssignedUsers(params: {
   }));
 }
 
+// Result type for resolveUserIdFromEmail — distinguishes "found" from the
+// two failure modes so the UI can show a useful message instead of just
+// "not a member".
+export type ResolveUserResult =
+  | { kind: "ok"; id: string; name?: string }
+  | { kind: "pending"; email: string } // invited but not yet accepted
+  | { kind: "not_found"; knownEmails: string[] };
+
 // Resolves a user identifier — accepts either a numeric Meta user id or an
 // email — to the canonical FB user id. Falls back to scanning BM members
 // by email when an email-like input is given.
@@ -111,7 +163,7 @@ export async function resolveUserIdFromEmail(params: {
   businessId: string;
   emailOrId: string;
   accessToken: string;
-}): Promise<{ id: string; name?: string } | null> {
+}): Promise<ResolveUserResult> {
   const input = params.emailOrId.trim();
   if (/^\d{6,}$/u.test(input)) {
     // Looks like a Meta user id already.
@@ -121,22 +173,40 @@ export async function resolveUserIdFromEmail(params: {
         { fields: ["id", "name"] },
         { accessToken: params.accessToken },
       );
-      return { id: u.id, name: u.name };
+      return { kind: "ok", id: u.id, name: u.name };
     } catch {
-      return null;
+      return { kind: "not_found", knownEmails: [] };
     }
   }
-  // Scan the BM's user list for a matching email — Meta's API doesn't expose
-  // a direct email lookup, but BM-membership lists do include the email.
+  const needle = input.toLowerCase();
   const users = await listBusinessUsers({
     businessId: params.businessId,
     accessToken: params.accessToken,
   });
   const match = users.find(
-    (u) => u.email && u.email.toLowerCase() === input.toLowerCase(),
+    (u) => u.email && u.email.toLowerCase() === needle,
   );
-  if (!match) return null;
-  return { id: match.id, name: match.name };
+  if (match) return { kind: "ok", id: match.id, name: match.name };
+
+  // Not in confirmed members — maybe it's a pending invite that hasn't been
+  // accepted yet. Surface that distinction so the user can chase the friend
+  // to accept rather than getting a misleading "not a member" message.
+  const pending = await listPendingBusinessUsers({
+    businessId: params.businessId,
+    accessToken: params.accessToken,
+  });
+  const stillPending = pending.find(
+    (p) => p.email && p.email.toLowerCase() === needle,
+  );
+  if (stillPending && stillPending.email)
+    return { kind: "pending", email: stillPending.email };
+
+  return {
+    kind: "not_found",
+    knownEmails: users
+      .map((u) => u.email)
+      .filter((e): e is string => !!e),
+  };
 }
 
 // Generic POST helper for write endpoints — used by assign + remove.
